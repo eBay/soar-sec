@@ -1,0 +1,17 @@
+/*************************************************************
+ Copyright 2019 eBay Inc.
+ Use of this source code is governed by an MIT-style
+ license that can be found in the LICENSE file or at
+ https://opensource.org/licenses/MIT.
+ ************************************************************/
+
+(function executeRule(current, previous /*null when async*/) {
+
+	var wr = new EmailHeader().analyzeEmailHeader(current.sys_id);
+	
+	if (wr)
+		{
+		current.work_notes ='Email Header Analysis : '+current.number+'\n***********************\n\n'+wr;
+		current.update();
+	}
+})(current, previous);

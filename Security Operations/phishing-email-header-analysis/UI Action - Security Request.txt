@@ -1,0 +1,41 @@
+/*************************************************************
+ Copyright 2019 eBay Inc.
+ Use of this source code is governed by an MIT-style
+ license that can be found in the LICENSE file or at
+ https://opensource.org/licenses/MIT.
+ ************************************************************/
+function executeRule(current, previous /*null when async*/) {
+	
+	// Check if attachment is attached to the request
+	var wnotes = '';
+	var wr = new EmailHeader().analyzeEmailHeader(current.sys_id);
+	if (wr)
+		{
+		wnotes ='Email Header Analysis : '+current.number+'\n***********************\n\n'+wr;
+	}
+	
+	// Check if attachments are attached to email
+	var em = new GlideRecord('sn_si_email_queue');
+	em.addQuery('u_task',current.sys_id);
+	em.query();
+	while (em.next())
+		{
+		var r = new EmailHeader().analyzeEmailHeader(em.sys_id);
+		if (r)
+			{
+			wnotes = wnotes+'Email Header Analysis : Email Queue - '+em.getValue('u_label')+'\n***********************\n\n'+r;
+		}
+	}
+	if (wnotes)
+		{
+		current.work_notes = wnotes;
+		current.update();
+	}
+	else
+		{
+		gs.addInfoMessage("System couldn't detect an attachment of format .eml, please attach the file to analyze the email header.");
+	}
+	
+	action.setRedirectURL(current);
+	
+})(current, previous);

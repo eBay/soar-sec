@@ -1,0 +1,203 @@
+/*************************************************************
+ Copyright 2019 eBay Inc.
+ Use of this source code is governed by an MIT-style
+ license that can be found in the LICENSE file or at
+ https://opensource.org/licenses/MIT.
+ ************************************************************/
+
+var EmailHeader = Class.create();
+EmailHeader.prototype = {
+	initialize: function() {
+	},
+	
+	analyzeEmailHeader:	function(id)
+	{
+		var notes ='';
+		var attachment = new GlideRecord("sys_attachment");
+		attachment.addEncodedQuery('file_nameLIKEeml^table_sys_id='+id);
+		attachment.query();
+		
+		while (attachment.next())
+			{
+			
+			var eml = ParseAttachmentAsAnEmail.parse(attachment);
+			
+			notes = notes+'Message-ID: '+eml.headers()['Message-ID'] + '\n\n';
+			
+			notes = notes+'Subject: '+eml.headers()["Subject"]+ '\n\n';
+			
+			if (eml.headers()["X-Originating-IP"])
+				notes = notes+'X-Originating-IP: '+eml.headers()["X-Originating-IP"]+ '\n\n';
+			
+			notes = notes+'Date Composed: '+this.parseDate(eml.headers()['Date'].toString()) + ' GMT\n\n';
+			
+			notes = notes+'From: '+eml.headers()["From"]+ '\n\n';
+			
+			if (eml.headers()["Return-Path"])
+				notes = notes+'Reply To: '+eml.headers()["Reply-To"]+ '\n\n';
+			
+			notes = notes+'To: '+eml.headers()["To"]+ '\n\n';
+			
+			if (eml.headers()["X-Mailer"])
+				notes = notes+'X-Mailer: '+eml.headers()["X-Mailer"]+ '\n\n';
+			
+			if (eml.headers()["CC"])
+				notes = notes+'CC: '+eml.headers()["CC"]+ '\n\n';
+			
+			if (eml.headers()["Authentication-Results"])
+				notes = notes+'Authentication-Results: '+eml.headers()["Authentication-Results"]+ '\n\n';
+			
+			if (eml.headers()['Received'])
+				notes = notes+ this.parseReceived(eml.headers()['Received'].toString()) + '\n\n';
+			
+			if (eml.body_text)
+				{
+				
+				if (eml.body_text.indexOf('safelinks')>-1)
+					{
+					notes = notes+this.getallsafelinks(eml.body_text).toString()+'\n';
+				}
+				notes = notes+ 'Body Text:\n--------------------\n'+eml.body_text + '\n-------------------------\n';
+			}
+			
+			if (eml.body_html)
+				{
+				
+				if (eml.body_html.indexOf('safelinks')>-1)
+					{
+					notes = notes+this.getallsafelinks(eml.body_html).toString()+'\n';
+				}
+				notes = notes+ 'Body HTML:\n--------------------\n'+eml.body_html + '\n-------------------------\n';
+			}
+			notes = notes+ '++++++++++++++End of analysis++++++++++++\n\n';
+		}
+		
+		return notes;
+	},
+	
+	parseReceived: function(st)
+	{
+		var delay = '0 Seconds';
+		var bdate = new GlideDateTime();
+		var sta = st.split(',from');
+		var from ='';
+		
+		var t = '[code]<style> .mytable {font-family: arial, sans-serif;border-collapse: collapse;} .mytable td,.mytable th{border: 1px solid #dddddd;text-align: left;padding: 4px;} .mytable tr:nth-child(even) {background-color: #dddddd;}</style><table class="mytable">';
+			
+			t = t+'<tr><th style="width:5%;">Hop↑</th><th>Submitting Host</th><th>Receiving Host</th><th>Type</th><th>Time</th><th style="width:10%;">Delay</th></tr>';
+			
+			for (var i=0;i<sta.length;i++)
+				{
+				
+				if (i==0)
+					from = sta[i].substring(5,sta[i].indexOf('by'));
+				else
+					from = sta[i].substring(0,sta[i].indexOf('by'));
+				
+				var by = sta[i].substring(sta[i].indexOf('by')+2,sta[i].lastIndexOf('with'));
+				var awith = sta[i].substring(sta[i].lastIndexOf('with')+4,sta[i].indexOf(';'));
+				var adate = this.parseDate(sta[i]);
+				
+				if (i!=0)
+					{
+					var dur = GlideDateTime.subtract(new GlideDateTime(adate),new GlideDateTime(bdate));
+					delay = dur.getDisplayValue();
+					if (delay!='0 Seconds')
+						delay = '<b>'+delay+'</b>';
+				}
+				
+				bdate = adate;
+				var j = i+1;
+				t = t+'<tr><td>'+j+'</td><td>'+from+'</td><td>'+by+'</td><td>'+awith+'</td><td>'+adate+' GMT</td><td>'+delay+'</td></tr>';
+			}
+			return t+'</table>[/code]';
+		},
+		
+		parseDate: function(dst)
+		{
+			// Date format is 19 Jan 2019 07:23:52 +0000
+			
+			dst = dst.substring(dst.lastIndexOf(';')+1,dst.length);
+			
+			if (dst.indexOf(',')>-1)
+				dst=dst.split(', ')[1];
+			
+			dst = dst.trim().replace('\n','');
+			
+			return this.getOrgDate(dst);
+		},
+		
+		getOrgDate: function(d)
+		{
+			var sa = d.split(' ');
+			
+			var gdtStr = sa[0].trim()+ ' ' + sa[1].trim()+ ' ' + sa[2].trim()+ ' ' + sa[3].trim();
+			
+			var gdt = new GlideDateTime();
+			gdt.setValueUTC(gdtStr, "dd MMM yyyy HH:mm:ss");
+			
+			var gtime1 = new GlideTime();
+			var tzOffset = sa[4].substring(1,3) +':'+ sa[4].substring(3,5)+":00";
+			
+			gtime1.setValue(tzOffset);
+			
+			if (sa[4].indexOf('-')>-1)
+				gdt.add(gtime1);
+			else
+				gdt.subtract(gtime1);
+			
+			return gdt.getValue();
+		},
+		
+		getallsafelinks: function(s)
+		{
+			var linktable = '[code]<style>.mybuttonlink1 { -webkit-appearance: button;-moz-appearance: button;appearance: button;text-decoration: none;color: initial;} .mytable2 {font-family: arial, sans-serif;border-collapse: collapse;width:100%} .mytable2 td,.mytable2 th{border: 1px solid ;text-align: left;padding: 8px;}</style><table class="mytable2">';
+				linktable = linktable+'<tr><th>URL</th><th>Total Scans</th><th>Positives</th><th>Scan Date</th><th>View in VTI</th></tr>';
+				var st2=[];
+				var count=0;
+				var count2 = (s.match(/url=/g) || []).length;
+				
+				while (count<count2)
+					{
+					var st = s.substring(s.indexOf('url='),s.length);
+					var st1 = st.substring(4,st.indexOf('&'));
+					if (st2.indexOf(st1)==-1)
+						st2.push(st.substring(4,st.indexOf('&')));
+					
+					s = s.substring(s.indexOf('url=')+4,s.length);
+					
+					count++;
+				}
+				
+				for (var i=0;i<st2.length;i++)
+					{
+					var res = JSON.parse(this.runVirusTotal(st2[i]));
+					if (res.response_code==1)
+						{
+						linktable = linktable+'<tr><td>'+decodeURIComponent(st2[i])+'</td><td>'+res.total+'</td><td>'+res.positives+'</td><td>'+res.scan_date+'</td><td><a href="'+res.permalink+'" target="_blank">Click Here</a></td></tr>';
+					}
+					else
+						{
+						linktable = linktable+'<tr><td>'+decodeURIComponent(st2[i])+'</td><td>No Match</td><td>No Match</td><td>No Match</td><td>No Match</td></tr>';
+					}
+				}
+				
+				linktable = linktable+'</table>[/code]';
+				
+				return linktable;
+			},
+			
+			runVirusTotal: function(surl)
+			{
+				var request = new sn_ws.RESTMessageV2();
+				request.setEndpoint('https://www.virustotal.com/vtapi/v2/url/report');
+				request.setQueryParameter('apikey','<Your API Key>');
+				request.setQueryParameter('resource',decodeURIComponent(surl));
+				request.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+				request.setHttpMethod("get");
+				var response = request.execute();
+				
+				return response.getBody();
+			},
+			type: 'EmailHeader'
+		};

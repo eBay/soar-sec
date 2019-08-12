@@ -1,0 +1,89 @@
+
+/*************************************************************
+ Copyright 2019 eBay Inc.
+ Use of this source code is governed by an MIT-style
+ license that can be found in the LICENSE file or at
+ https://opensource.org/licenses/MIT.
+ ************************************************************/
+
+
+Condition: email.recipients.toLowerCase().indexOf(gs.getProperty('sn_si.abccompany.csirt.email'))&gt;-1 || email.recipients.toLowerCase().indexOf(gs.getProperty('sn_si.abccompany.csirt.email.alias'))&gt;-1</condition_script>
+
+Script:
+
+ 
+var rarray = email.recipients.toLowerCase().split(",");
+var nrarray = '';
+var instanceEmail = gs.getProperty('sn_si.abccompany.csirt.email');
+
+for (var i=0; i<rarray.length; i++) {
+	if (rarray[i] != instanceEmail) {
+		if (nrarray)
+			nrarray=nrarray+','+rarray[i];
+		else
+			nrarray = rarray[i];
+	}
+}
+
+var email_sub = email.subject.split(': ')[1];
+
+var inc = new GlideRecord('sn_si_request');
+inc.addEncodedQuery('active=true^short_description='+email_sub+'^ORshort_description='+email.subject);
+inc.query();
+
+if (inc.next())
+	{
+	var bodyText = email.body_text;
+	if (!bodyText)
+		bodyText = email.body_html;
+	inc.comments = "Replied by email:\n\nReceived from: " + email.origemail + "\n\n" + email.subject + "\n\n[code]" + email.body_html+'[/code]';
+	
+	for (var j=0; j<rarray.length; j++) {
+		if (rarray[j] != instanceEmail && inc.watch_list.indexOf(rarray[j])==-1) {
+			if (inc.watch_list!='')
+				inc.watch_list = inc.watch_list+','+rarray[j];
+			else
+				inc.watch_list = rarray[j];
+		}
+	}
+	
+	inc.update();
+	
+	if (email.uid != undefined){
+		//find match for an email with a matching UID
+		var em = new GlideRecord('sys_email');
+		em.query('uid', email.uid);
+		em.orderByDesc('sys_created_on');
+		em.query();
+		if(em.next()) {
+			em.instance = inc.sys_id;
+			em.update();
+		}
+	}
+}
+else
+	{
+	var bodyText = email.body_text;
+	if (!bodyText)
+		bodyText = email.body_html;
+	
+	current.contact_type = 'email';
+	current.short_description = email.subject;
+	current.description = bodyText;
+	current.comments = "Security Request created by email:\n\nReceived from: " + email.origemail + "\n\n" + email.subject + "\n\n[code]" + email.body_html+'[/code]';
+	if (nrarray!='')
+		{
+		if (current.watch_list!='')
+			current.watch_list = current.watch_list+','+nrarray;
+		else
+			current.watch_list = nrarray;
+	}
+	
+	if (email.importance != undefined) {
+		if (email.importance.toLowerCase() == "high")
+			current.priority = 1;
+	}
+	
+	var newId = current.insert();
+	gs.eventQueue('sir.request.email.creation', current, newId, email.from);
+}
